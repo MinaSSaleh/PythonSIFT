@@ -498,3 +498,4 @@ def concatenate_arrays(arrays):
     """Concatenate a list of 1-D numpy arrays into a single array."""
     from numpy import concatenate
     return concatenate(arrays) if arrays else zeros(0, dtype=float32)
+# spatial pyramid pooling
