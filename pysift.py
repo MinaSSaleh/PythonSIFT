@@ -424,3 +424,77 @@ def generateDescriptors(keypoints, gaussian_images, window_width=4, num_bins=8, 
         descriptor_vector[descriptor_vector > 255] = 255
         descriptors.append(descriptor_vector)
     return array(descriptors, dtype='float32')
+
+
+####################################
+# Spatial Pyramid Descriptor Pool  #
+####################################
+
+def buildSpatialPyramidDescriptor(keypoints, gaussian_images, levels=3, num_bins=8):
+    """
+    Build a spatial pyramid pooling descriptor over the full image.
+
+    Divides the image into increasingly fine grids at each pyramid level and
+    aggregates orientation histograms within each cell. The resulting descriptor
+    encodes spatial layout at multiple scales, capturing both coarse global
+    structure and fine local patterns in a single fixed-length vector.
+
+    At level l, the image is divided into 2^l x 2^l cells. Keypoints falling
+    within each cell contribute their gradient orientations to the cell's
+    histogram. All level histograms are concatenated and L2-normalised.
+
+    Args:
+        keypoints: list of cv2.KeyPoint objects (from computeKeypointsAndDescriptors)
+        gaussian_images: image pyramid (from generateGaussianImages)
+        levels: number of pyramid levels (default 3 → cells: 1x1, 2x2, 4x4)
+        num_bins: orientation histogram bins per cell (default 8)
+
+    Returns:
+        pyramid_descriptor: 1-D float32 array of length
+            num_bins * sum(4^l for l in range(levels))
+            e.g. levels=3, bins=8 → 8*(1+4+16) = 168-D
+    """
+    if not keypoints:
+        total_cells = sum(4 ** l for l in range(levels))
+        return zeros(num_bins * total_cells, dtype=float32)
+
+    # Use the finest gaussian image available for gradient computation
+    image = gaussian_images[0][-1]
+    h, w = image.shape
+
+    level_histograms = []
+
+    for level in range(levels):
+        grid_size = 2 ** level            # cells per side at this level
+        cell_h = h / grid_size
+        cell_w = w / grid_size
+        # Each cell gets its own orientation histogram
+        cell_hists = zeros((grid_size, grid_size, num_bins), dtype=float32)
+
+        for kp in keypoints:
+            x, y = kp.pt
+            # Clamp to valid cell indices
+            ci = int(min(y / cell_h, grid_size - 1))
+            cj = int(min(x / cell_w, grid_size - 1))
+            # Bin the keypoint's dominant angle
+            angle_bin = int((kp.angle % 360) / (360.0 / num_bins)) % num_bins
+            cell_hists[ci, cj, angle_bin] += kp.response   # weight by response strength
+
+        # Weight coarser levels more (standard SPM weighting: 1/2^(L-l))
+        weight = 1.0 / (2 ** (levels - 1 - level))
+        level_histograms.append(cell_hists.flatten() * weight)
+
+    pyramid_descriptor = concatenate_arrays(level_histograms)
+
+    # L2-normalise
+    n = norm(pyramid_descriptor)
+    if n > float_tolerance:
+        pyramid_descriptor /= n
+
+    return pyramid_descriptor.astype(float32)
+
+
+def concatenate_arrays(arrays):
+    """Concatenate a list of 1-D numpy arrays into a single array."""
+    from numpy import concatenate
+    return concatenate(arrays) if arrays else zeros(0, dtype=float32)
