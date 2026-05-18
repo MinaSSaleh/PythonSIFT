@@ -499,3 +499,4 @@ def concatenate_arrays(arrays):
     from numpy import concatenate
     return concatenate(arrays) if arrays else zeros(0, dtype=float32)
 # spatial pyramid pooling
+# app auth test
